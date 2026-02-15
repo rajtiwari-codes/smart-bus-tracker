@@ -30,4 +30,4 @@ SIH prototype for smart public transport: dynamic bus route tracking, live progr
 Frontend prototype (no backend/database yet)
 
 ## Author
-Your Name
+Raj tiwari
