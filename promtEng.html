@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bus Tracking System - Dynamic Open Source</title>
+    
+    <!-- Tailwind CSS (for styling) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS (for the map library) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <!-- Lucide Icons (for aesthetic SVGs) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Polyline Decoder for ORS Geometry -->
+    <script src="https://unpkg.com/@mapbox/polyline@1.1.1/src/polyline.js"></script> 
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #e0f2fe;
+        }
+        #map {
+            height: 100%;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .scroll-container {
+            -ms-overflow-style: none; 
+            scrollbar-width: none; 
+        }
+        .scroll-container::-webkit-scrollbar {
+            display: none; 
+        }
+        /* Custom Bus Icon using CSS/SVG for Leaflet */
+        .bus-icon {
+            background-color: transparent;
+            width: 40px;
+            height: 40px;
+            /* Inline SVG for the bus icon */
+            background-image: url('data:image/svg+xml;utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%231d4ed8"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h2c0 1.66 1.34 3 3 3s3-1.34 3-3h2c0 1.66 1.34 3 3 3s3-1.34 3-3h2c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zM8 20c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm8 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zM21 16H3V8h18v8zM7 15h2v2H7zm4 0h2v2h-2zm4 0h2v2h-2z"/></svg>');
+            background-size: cover;
+            border-radius: 50%;
+            border: 3px solid #fff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+        .instruction-item {
+            border-bottom: 1px dashed #e5e7eb; /* Light gray dashed line */
+            padding: 10px 0;
+        }
+        .instruction-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body class="p-6 h-screen flex flex-col md:flex-row gap-6">
+
+    <!-- Main Container: Map and Details Panel -->
+    <div class="flex-1 min-h-1/2 md:min-h-full">
+        <div id="map"></div>
+    </div>
+
+    <div class="flex-1 bg-white p-8 rounded-3xl shadow-xl flex flex-col scroll-container min-h-1/2 md:min-h-full">
+        <div class="flex-grow">
+            <h1 class="text-3xl font-extrabold text-blue-900 mb-2">Live Bus Tracker (Dynamic Routing)</h1>
+            <p class="text-gray-500 mb-6">Enter your starting and ending points to calculate a real route.</p>
+            
+            <!-- Search Inputs -->
+            <div class="mb-6">
+                <div class="flex items-end gap-2 mb-4">
+                    <div class="flex-grow">
+                        <label for="start-input" class="block text-gray-700 font-semibold mb-2">Starting Point</label>
+                        <input type="text" id="start-input" value="Pune, India" class="w-full p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200">
+                    </div>
+                    <!-- Reverse Route Button (Feature added) -->
+                    <button id="reverse-btn" class="p-3 bg-gray-200 text-gray-600 rounded-xl hover:bg-gray-300 transition duration-200" title="Swap Start and End">
+                         <i data-lucide="arrow-up-down" class="w-6 h-6"></i>
+                    </button>
+                </div>
+                <div class="mb-4">
+                    <label for="end-input" class="block text-gray-700 font-semibold mb-2">Ending Point</label>
+                    <input type="text" id="end-input" value="Mumbai, India" class="w-full p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200">
+                </div>
+                <button id="find-route-btn" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-full shadow-lg hover:bg-green-700 transition duration-300">
+                    Find Route & Start Tracking
+                </button>
+            </div>
+
+            <!-- Vehicle & Delay Status Row -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                
+                <!-- Vehicle Card (Feature added) -->
+                <div id="vehicle-card" class="bg-blue-50 p-4 rounded-xl shadow-md border-l-4 border-blue-500">
+                    <h3 class="text-sm font-bold text-blue-800 mb-2 flex items-center gap-2">
+                        <i data-lucide="bus-front" class="w-4 h-4"></i>
+                        VEHICLE STATUS
+                    </h3>
+                    <div class="text-sm text-gray-700">
+                        <p class="font-semibold">Bus No.: <span id="bus-number">MH-12-AB-3456</span></p>
+                        <p class="font-semibold">Driver: <span id="driver-name">Ravi Sharma</span></p>
+                        <div class="flex items-center text-yellow-500">
+                            <i data-lucide="star" class="w-4 h-4 fill-yellow-500"></i>
+                            <span id="driver-rating" class="ml-1 text-gray-700 font-semibold">4.8 / 5</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Delay Reason Card (Feature added) -->
+                <div id="delay-reason-card" class="bg-yellow-50 p-4 rounded-xl shadow-md border-l-4 border-yellow-500">
+                    <h3 class="text-sm font-bold text-yellow-800 mb-2 flex items-center gap-2">
+                        <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                        DELAY REASON
+                    </h3>
+                    <p id="delay-reason-text" class="text-sm text-gray-700 font-semibold">
+                        Ready to start journey.
+                    </p>
+                </div>
+            </div>
+
+
+            <!-- Route Details Section -->
+            <div class="bg-green-50 p-6 rounded-2xl shadow-sm mb-6">
+                <h2 class="text-xl font-bold text-green-800 mb-4">Route Summary</h2>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="flex items-center gap-2 text-gray-700">
+                        <svg class="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span class="font-semibold">Start:</span> <span id="start-point">Not Set</span>
+                    </div>
+
+                    <div class="flex items-center gap-2 text-gray-700">
+                        <svg class="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.707-10.293a1 1 0 00-1.414-1.414L6 10.586l1.293 1.293 3-3z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span class="font-semibold">End:</span> <span id="end-point">Not Set</span>
+                    </div>
+
+                    <div class="flex items-center gap-2 text-gray-700">
+                        <svg class="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1-9V6a1 1 0 112 0v3h2a1 1 0 010 2h-2v2a1 1 0 11-2 0v-2H7a1 1 0 010-2h2z" clip-rule="evenodd" fill-rule="evenodd"></path>
+                        </svg>
+                        <span class="font-semibold">Distance:</span> <span id="distance">--</span>
+                    </div>
+
+                    <div class="flex items-center gap-2 text-gray-700">
+                        <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v5.586L6.707 9.293a1 1 0 00-1.414 1.414l3.5 3.5a1 1 0 001.414 0l4-4a1 1 0 00-1.414-1.414L11 11.586V6z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span class="font-semibold">Duration:</span> <span id="duration">--</span>
+                    </div>
+
+                    <!-- Estimated Delay (Feature added) -->
+                    <div class="flex items-center gap-2 text-gray-700">
+                        <svg class="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.5 7h1v5h-1V7zm0 6h1v1h-1v-1z"></path>
+                        </svg>
+                        <span class="font-semibold">Est. Delay:</span> <span id="delay" class="font-bold text-red-600">--</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Bus Status Section -->
+            <div id="status-card" class="bg-gray-50 p-6 rounded-2xl shadow-sm mb-6">
+                <div class="flex items-center gap-4 mb-4">
+                    <svg class="w-8 h-8 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1-9V6a1 1 0 112 0v3h2a1 1 0 010 2h-2v2a1 1 0 11-2 0v-2H7a1 1 0 010-2h2z" clip-rule="evenodd" fill-rule="evenodd"></path>
+                    </svg>
+                    <h2 class="text-2xl font-bold text-gray-800">Status: <span id="status-text" class="text-green-500">Ready</span></h2>
+                </div>
+                <!-- Progress Bar (Feature added) -->
+                <div class="w-full bg-gray-300 rounded-full h-2.5 mb-2">
+                    <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <p id="progress-text" class="text-xs text-gray-600 mb-4">0% complete</p>
+                <p id="status-message" class="text-gray-600">Please run with Live Server and search for a route.</p>
+            </div>
+
+            <!-- Journey Breakdown Section -->
+            <div class="bg-white p-6 rounded-2xl border border-gray-200">
+                <h2 class="text-xl font-bold text-blue-900 mb-4 border-b pb-2">Journey Breakdown</h2>
+                <div id="instructions-list" class="scroll-container max-h-64 overflow-y-auto">
+                    <!-- Instructions will be injected here -->
+                    <p class="text-gray-500">Search for a route to see detailed instructions.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS (map library) -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <script>
+        // ***************************************************************
+        // ORS API Key (for route calculation)
+        // This key is for the current OpenRouteService setup.
+        // ***************************************************************
+        const ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjgzOWZmNGU5YjAzNzRkN2JiYjkyZDI3Y2U3ZGU2OWEwIiwiaCI6Im11cm11cjY0In0="; 
+        
+        const DELHI_CENTER = [28.6139, 77.2090]; 
+        let simulationInterval;
+        let map;
+        let busMarker;
+        let busRoutePolyline;
+        let currentRoutePath = [];
+
+        // --- Simulated RedBus Data ---
+        const MOCK_VEHICLE_DATA = {
+            busNumber: 'MH-12-AB-3456',
+            driverName: 'Ravi Sharma',
+            rating: '4.8 / 5'
+        };
+
+        const DELAY_REASONS = [
+            "Heavy traffic congestion near the city exit.",
+            "Road construction/work underway on the main highway.",
+            "Vehicle inspection and routine safety check.",
+            "Unscheduled police checkpoint near a major junction.",
+            "Minor mechanical delay, driver is resolving now."
+        ];
+
+        // Custom Bus Icon Class
+        const BusIcon = L.DivIcon.extend({
+            options: {
+                className: 'bus-icon',
+                iconSize: [40, 40],
+                iconAnchor: [20, 40]
+            }
+        });
+
+        // --- Utility Functions ---
+
+        function updateStatus(status, message, colorClass) {
+            document.getElementById('status-text').textContent = status;
+            document.getElementById('status-text').className = `font-bold ${colorClass}`;
+            document.getElementById('status-message').textContent = message;
+        }
+
+        function formatDuration(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const remainingMinutes = minutes % 60;
+            if (hours > 0) {
+                return `${hours} hr ${remainingMinutes} min`;
+            }
+            return `${minutes} min`;
+        }
+        
+        // This function requires the @mapbox/polyline library we included above
+        function decodePolyline(encoded) {
+            if (typeof polyline !== 'undefined') {
+                return polyline.decode(encoded);
+            }
+            console.error("Polyline decoding library not loaded.");
+            return [];
+        }
+
+        // --- API Integration (OpenRouteService) ---
+
+        async function geocodeAddress(address) {
+            const geocodeUrl = 'https://api.openrouteservice.org/geocode/search';
+            
+            const response = await fetch(`${geocodeUrl}?api_key=${ORS_API_KEY}&text=${encodeURIComponent(address)}`);
+            const data = await response.json();
+            
+            if (!response.ok) {
+                console.error("Geocoding API failed:", response.status, data);
+                throw new Error(`Geocoding failed with status ${response.status}. Check console for details.`);
+            }
+
+            if (data.features && data.features.length > 0) {
+                // ORS returns [lng, lat]
+                return data.features[0].geometry.coordinates;
+            }
+            throw new Error(`Could not find coordinates for: ${address}`);
+        }
+
+        async function getRoute(startCoords, endCoords, startPointName, endPointName) {
+            const routeUrl = 'https://api.openrouteservice.org/v2/directions/driving-car'; 
+
+            let finalPath = null;
+            let finalDistance = 0;
+            let finalDuration = 0;
+            let finalInstructions = [];
+
+            try {
+                const response = await fetch(routeUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json, application/geo+json, application/gpx+xml, application/xsd+xml',
+                        'Content-Type': 'application/json',
+                        'Authorization': ORS_API_KEY, 
+                    },
+                    body: JSON.stringify({
+                        coordinates: [startCoords, endCoords],
+                        options: {}, // CLEANED UP FOR THE FINAL FIX
+                        geometry: true, 
+                        instructions: true, 
+                        profile: 'driving-car',
+                        geometry_format: 'polyline', 
+                        extra_info: ["steepness", "waytype", "surface"] 
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Could not parse error response.' }));
+                    console.error("Routing API failed:", response.status, errorData);
+                    throw new Error(`Routing failed. Status ${response.status}. Check API key restrictions.`);
+                }
+
+                const routeData = await response.json();
+
+                if (routeData.routes && routeData.routes.length > 0) {
+                    const route = routeData.routes[0];
+                    finalDistance = route.summary.distance / 1000;
+                    finalDuration = route.summary.duration;
+                    
+                    if (route.segments && route.segments.length > 0 && route.segments[0].steps) {
+                        finalInstructions = route.segments[0].steps.map(step => ({
+                            instruction: step.instruction,
+                            distance: (step.distance / 1000).toFixed(2), 
+                            duration: formatDuration(step.duration)
+                        }));
+                    } else {
+                        finalInstructions = [{ instruction: "Detailed instructions could not be loaded.", distance: "0.00", duration: "0 min" }];
+                    }
+
+                    // --- CRITICAL PATH: Decode the Polyline Geometry ---
+                    if (route.geometry) {
+                        finalPath = decodePolyline(route.geometry);
+                    } else {
+                        // Fallback 1: API failed to return geometry
+                        console.warn("ORS Route response missing coordinates (geometry). Using straight line path.");
+                        finalPath = [
+                            [startCoords[1], startCoords[0]], // [lat, lng]
+                            [endCoords[1], endCoords[0]]      // [lat, lng]
+                        ];
+                    }
+                } else {
+                    throw new Error("No route found between the specified locations.");
+                }
+
+            } catch (error) {
+                console.error("Full ORS API request failed (Network or Server Error):", error);
+                
+                // Fallback: Straight line and mock data
+                const R = 6371; 
+                const dLat = (endCoords[1] - startCoords[1]) * (Math.PI / 180);
+                const dLon = (endCoords[0] - startCoords[0]) * (Math.PI / 180);
+                const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                          Math.cos(startCoords[1] * (Math.PI / 180)) * Math.cos(endCoords[1] * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                finalDistance = (R * c).toFixed(1);
+                finalDuration = finalDistance * 60; 
+
+                finalPath = [ [startCoords[1], startCoords[0]], [endCoords[1], endCoords[0]] ];
+                
+                finalInstructions = [{ instruction: "API FAILED: Displaying simulated straight-line route.", distance: finalDistance, duration: formatDuration(finalDuration) }];
+                
+                updateStatus('Network Error', 'Failed to fetch route. Check ORS key status/Live Server.', 'text-red-600');
+            }
+
+            // Simulate Delay and Reason (RedBus features)
+            const simulatedDelaySeconds = Math.floor(Math.random() * (1800 - 300 + 1)) + 300;
+            const simulatedDelay = formatDuration(simulatedDelaySeconds);
+            const randomReason = DELAY_REASONS[Math.floor(Math.random() * DELAY_REASONS.length)];
+
+            return {
+                path: finalPath,
+                distance: parseFloat(finalDistance),
+                duration: finalDuration,
+                instructions: finalInstructions,
+                delay: simulatedDelay,
+                delayReason: randomReason
+            };
+        }
+
+        function renderInstructions(instructions) {
+            const listElement = document.getElementById('instructions-list');
+            listElement.innerHTML = ''; 
+            
+            instructions.forEach((step, index) => {
+                const item = document.createElement('div');
+                item.className = 'instruction-item flex justify-between items-center text-sm';
+                
+                const instructionText = document.createElement('div');
+                instructionText.className = 'flex items-center space-x-2 w-3/4';
+                
+                const icon = document.createElement('span');
+                icon.className = 'text-blue-600 font-bold';
+                icon.textContent = `${index + 1}.`; 
+
+                const text = document.createElement('p');
+                text.className = 'text-gray-700';
+                text.textContent = step.instruction;
+
+                instructionText.appendChild(icon);
+                instructionText.appendChild(text);
+
+                const distanceSpan = document.createElement('span');
+                distanceSpan.className = 'text-gray-500 font-medium w-1/4 text-right';
+                distanceSpan.textContent = `${step.distance} km`;
+
+                item.appendChild(instructionText);
+                item.appendChild(distanceSpan);
+                listElement.appendChild(item);
+            });
+        }
+        
+        // --- Feature: Swap Start/End Points ---
+        function swapPoints() {
+            const startInput = document.getElementById('start-input');
+            const endInput = document.getElementById('end-input');
+            const tempValue = startInput.value;
+            startInput.value = endInput.value;
+            endInput.value = tempValue;
+            
+            findRoute(); 
+        }
+
+        // --- Core Application Logic (Find Route/Simulation) ---
+        function simulateBusMovement(path) {
+            let pathIndex = 0;
+            const totalSteps = path.length;
+
+            if (simulationInterval) {
+                clearInterval(simulationInterval);
+            }
+
+            simulationInterval = setInterval(() => {
+                if (pathIndex < totalSteps) {
+                    const newPosition = path[pathIndex];
+                    
+                    busMarker.setLatLng(newPosition);
+                    
+                    map.panTo(newPosition, { animate: true, duration: 0.1 });
+                    
+                    // Update Progress Bar 
+                    const progressPercent = Math.min(100, Math.round((pathIndex / totalSteps) * 100));
+                    document.getElementById('progress-bar').style.width = `${progressPercent}%`;
+                    document.getElementById('progress-text').textContent = `${progressPercent}% complete`;
+
+                    // Speed: Skip ahead to make the simulation faster
+                    pathIndex = Math.min(pathIndex + Math.ceil(totalSteps / 100), totalSteps);
+
+                } else {
+                    clearInterval(simulationInterval);
+                    document.getElementById('progress-bar').style.width = '100%';
+                    document.getElementById('progress-text').textContent = '100% complete (ARRIVED)';
+                    updateStatus('Arrived', 'The bus simulation has reached its final destination!', 'text-green-500');
+                }
+            }, 100); 
+        }
+
+
+        async function findRoute() {
+            clearInterval(simulationInterval); // Stop any existing simulation
+            document.getElementById('distance').textContent = '--';
+            document.getElementById('duration').textContent = '--';
+            document.getElementById('delay').textContent = '--';
+            document.getElementById('instructions-list').innerHTML = '<p class="text-gray-500">Searching...</p>';
+            document.getElementById('delay-reason-text').textContent = 'Calculating optimal route...'; 
+            document.getElementById('progress-bar').style.width = '0%';
+            document.getElementById('progress-text').textContent = '0% complete';
+
+
+            const startPoint = document.getElementById('start-input').value;
+            const endPoint = document.getElementById('end-input').value;
+
+            if (!startPoint || !endPoint) {
+                updateStatus('Error', 'Please enter both a starting and ending point.', 'text-red-500');
+                return;
+            }
+
+            try {
+                updateStatus('Geocoding', 'Finding start and end coordinates...', 'text-yellow-600');
+                
+                const [startCoords, endCoords] = await Promise.all([
+                    geocodeAddress(startPoint),
+                    geocodeAddress(endPoint)
+                ]);
+
+                updateStatus('Routing', 'Calculating optimal path...', 'text-blue-600');
+
+                const routeData = await getRoute(startCoords, endCoords, startPoint, endPoint);
+                currentRoutePath = routeData.path;
+
+                // --- STEP 1: Update UI with ALL route details ---
+                document.getElementById('start-point').textContent = startPoint;
+                document.getElementById('end-point').textContent = endPoint;
+                document.getElementById('distance').textContent = `${routeData.distance.toFixed(1)} km`;
+                document.getElementById('duration').textContent = formatDuration(routeData.duration);
+                document.getElementById('delay').textContent = routeData.delay; 
+                document.getElementById('delay-reason-text').textContent = routeData.delayReason; 
+                
+                renderInstructions(routeData.instructions); 
+
+                // --- STEP 2: Update Map and Start Simulation ---
+                const isStraightLine = currentRoutePath.length <= 2;
+                const trackStatus = isStraightLine ? 'Tracking (Simulated Path)' : 'Tracking (Real Path)';
+                const trackColor = isStraightLine ? 'text-orange-500' : 'text-green-500';
+
+                updateStatus(trackStatus, isStraightLine ? 'Displaying straight line path. Run with Live Server for real path.' : 'Bus simulation starting...', trackColor);
+
+                busRoutePolyline.setLatLngs(currentRoutePath);
+                
+                map.fitBounds(busRoutePolyline.getBounds()); 
+                
+                busMarker.setLatLng(currentRoutePath[0]);
+                
+                simulateBusMovement(currentRoutePath);
+
+            } catch (error) {
+                console.error("General Error in findRoute:", error);
+                updateStatus('Fatal Error', 'Check console for network issues/key status.', 'text-red-600'); 
+                busRoutePolyline.setLatLngs([]);
+                busMarker.setLatLng(DELHI_CENTER);
+            }
+        }
+
+        // --- Map Initialization ---
+        function initMap() {
+            map = L.map('map').setView(DELHI_CENTER, 5); 
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 18
+            }).addTo(map);
+
+            busMarker = L.marker(DELHI_CENTER, {
+                icon: new BusIcon()
+            }).addTo(map);
+
+            busRoutePolyline = L.polyline([], {
+                color: '#3b82f6', 
+                weight: 5,
+                opacity: 0.8
+            }).addTo(map);
+
+            // Event Listeners
+            document.getElementById('find-route-btn').addEventListener('click', findRoute);
+            document.getElementById('reverse-btn').addEventListener('click', swapPoints);
+            
+            // Initialize vehicle data display
+            document.getElementById('bus-number').textContent = MOCK_VEHICLE_DATA.busNumber;
+            document.getElementById('driver-name').textContent = MOCK_VEHICLE_DATA.driverName;
+            document.getElementById('driver-rating').textContent = MOCK_VEHICLE_DATA.rating;
+            
+            lucide.createIcons();
+        }
+
+        window.onload = initMap;
+
+    </script>
+</body>
+</html>
